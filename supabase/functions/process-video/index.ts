@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Cobalt API endpoint (uses yt-dlp under the hood)
+const COBALT_API = 'https://api.cobalt.tools/api/json';
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -14,7 +17,7 @@ serve(async (req) => {
   try {
     const { url } = await req.json();
     
-    console.log('Processing video URL:', url);
+    console.log('Processing video URL with yt-dlp:', url);
 
     if (!url) {
       return new Response(
@@ -52,85 +55,152 @@ serve(async (req) => {
       platform = 'vimeo';
     }
 
-    // Extract video ID for YouTube
-    let videoId = '';
-    if (platform === 'youtube') {
-      if (hostname.includes('youtu.be')) {
-        videoId = videoUrl.pathname.slice(1);
-      } else {
-        videoId = videoUrl.searchParams.get('v') || '';
+    console.log('Detected platform:', platform);
+
+    // Call Cobalt API (yt-dlp wrapper)
+    try {
+      const cobaltResponse = await fetch(COBALT_API, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: url,
+          videoQuality: '1080',
+          filenameStyle: 'basic',
+          downloadMode: 'auto'
+        })
+      });
+
+      const cobaltData = await cobaltResponse.json();
+      console.log('Cobalt API response:', cobaltData);
+
+      // Handle Cobalt API response
+      if (cobaltData.status === 'error' || cobaltData.status === 'rate-limit') {
+        console.error('Cobalt API error:', cobaltData);
+        return new Response(
+          JSON.stringify({ 
+            error: cobaltData.text || 'Failed to process video',
+            details: 'The video service returned an error. Please try again or use a different URL.'
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
+
+      // Extract video ID for thumbnail
+      let videoId = '';
+      let thumbnail = 'https://via.placeholder.com/1280x720/FF385C/FFFFFF?text=Video+Thumbnail';
+      
+      if (platform === 'youtube') {
+        if (hostname.includes('youtu.be')) {
+          videoId = videoUrl.pathname.slice(1);
+        } else {
+          videoId = videoUrl.searchParams.get('v') || '';
+        }
+        if (videoId) {
+          thumbnail = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+        }
+      }
+
+      // Build response with available formats
+      const formats = [];
+      const audioFormats = [];
+
+      // Add the main download URL from Cobalt
+      if (cobaltData.url) {
+        formats.push({
+          quality: 'Best Available',
+          format: 'MP4',
+          size: 'Variable',
+          downloadUrl: cobaltData.url,
+        });
+      }
+
+      // Add audio-only option if available
+      if (cobaltData.audio) {
+        audioFormats.push({
+          quality: 'Best Available',
+          format: 'MP3/M4A',
+          size: 'Variable',
+          downloadUrl: cobaltData.audio,
+        });
+      }
+
+      // If picker array is available (multiple quality options)
+      if (cobaltData.picker && Array.isArray(cobaltData.picker)) {
+        cobaltData.picker.forEach((item: any, index: number) => {
+          if (item.url) {
+            formats.push({
+              quality: item.type === 'video' ? `Option ${index + 1}` : 'Audio',
+              format: item.type === 'video' ? 'MP4' : 'Audio',
+              size: 'Variable',
+              downloadUrl: item.url,
+            });
+          }
+        });
+      }
+
+      // If no formats were found, add fallback
+      if (formats.length === 0 && audioFormats.length === 0) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'No download links available',
+            details: 'Could not extract download URLs from this video.'
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const videoInfo = {
+        title: cobaltData.filename || `${platform.charAt(0).toUpperCase() + platform.slice(1)} Video`,
+        thumbnail,
+        duration: 'Unknown',
+        platform,
+        formats: formats.length > 0 ? formats : [{
+          quality: 'Available',
+          format: 'MP4',
+          size: 'Variable',
+          downloadUrl: cobaltData.url || '#',
+        }],
+        audioFormats: audioFormats.length > 0 ? audioFormats : [{
+          quality: 'Audio',
+          format: 'Audio',
+          size: 'Variable',
+          downloadUrl: cobaltData.audio || '#',
+        }],
+      };
+
+      console.log('Video info processed successfully');
+
+      return new Response(
+        JSON.stringify({ 
+          success: true,
+          videoInfo,
+          message: 'Video processed successfully using yt-dlp (via Cobalt API)' 
+        }),
+        { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+
+    } catch (apiError) {
+      console.error('Cobalt API call failed:', apiError);
+      
+      // Fallback response if Cobalt API fails
+      return new Response(
+        JSON.stringify({ 
+          error: 'Video processing service unavailable',
+          details: 'The external video processing service is temporarily unavailable. Please try again later.',
+          fallback: true
+        }),
+        { 
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
-
-    // Fetch video information using youtube-dl backend API (yt-dlp compatible)
-    // For production, you would integrate with a service like:
-    // - yt-dlp API wrapper
-    // - youtube-dl-exec
-    // - Or build custom scrapers for each platform
-    
-    // For demo purposes, we'll return mock data based on platform
-    const videoInfo = {
-      title: `Sample ${platform.charAt(0).toUpperCase() + platform.slice(1)} Video`,
-      thumbnail: platform === 'youtube' && videoId 
-        ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
-        : 'https://via.placeholder.com/1280x720/FF385C/FFFFFF?text=Video+Thumbnail',
-      duration: '5:23',
-      platform,
-      formats: [
-        {
-          quality: '1080p',
-          format: 'MP4',
-          size: '128 MB',
-          downloadUrl: `#download-1080p-${platform}`,
-        },
-        {
-          quality: '720p',
-          format: 'MP4',
-          size: '64 MB',
-          downloadUrl: `#download-720p-${platform}`,
-        },
-        {
-          quality: '480p',
-          format: 'MP4',
-          size: '32 MB',
-          downloadUrl: `#download-480p-${platform}`,
-        },
-        {
-          quality: '360p',
-          format: 'MP4',
-          size: '16 MB',
-          downloadUrl: `#download-360p-${platform}`,
-        },
-      ],
-      audioFormats: [
-        {
-          quality: '320kbps',
-          format: 'MP3',
-          size: '8 MB',
-          downloadUrl: `#download-audio-320-${platform}`,
-        },
-        {
-          quality: '128kbps',
-          format: 'MP3',
-          size: '4 MB',
-          downloadUrl: `#download-audio-128-${platform}`,
-        },
-      ]
-    };
-
-    console.log('Video info processed successfully:', videoInfo);
-
-    return new Response(
-      JSON.stringify({ 
-        success: true,
-        videoInfo,
-        message: 'Demo mode: In production, this would extract real download links from the video platform.' 
-      }),
-      { 
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
-    );
 
   } catch (error) {
     console.error('Error processing video:', error);

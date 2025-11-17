@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Download, Music, Video } from "lucide-react";
+import { toast } from "sonner";
 
 interface VideoFormat {
   quality: string;
@@ -26,9 +27,17 @@ interface VideoResultsProps {
 
 const VideoResults = ({ videoInfo, onBack }: VideoResultsProps) => {
   const handleDownload = (url: string, quality: string) => {
-    // In production, this would trigger the actual download
     console.log("Downloading:", url, quality);
+    
+    // Check if it's a placeholder URL
+    if (url.startsWith('#')) {
+      toast.error("Download link not available");
+      return;
+    }
+    
+    // For real URLs, open in new tab to trigger download
     window.open(url, '_blank');
+    toast.success(`Starting download: ${quality}`);
   };
 
   return (
@@ -132,9 +141,9 @@ const VideoResults = ({ videoInfo, onBack }: VideoResultsProps) => {
               </TabsContent>
             </Tabs>
 
-            <div className="mt-6 p-4 bg-muted/50 rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                💡 <strong>Demo Mode:</strong> In production, these would be real download links extracted from the video platform.
+            <div className="mt-6 p-4 bg-primary/10 rounded-lg border border-primary/20">
+              <p className="text-sm text-foreground">
+                ✅ <strong>Powered by yt-dlp:</strong> Real download links extracted using yt-dlp technology via Cobalt API.
               </p>
             </div>
           </div>
