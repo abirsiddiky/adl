@@ -78,7 +78,7 @@ const Hero = ({ onVideoProcessed }: HeroProps) => {
       <div className="max-w-4xl w-full text-center space-y-8 animate-fade-in">
         <div className="space-y-4">
           <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-foreground leading-tight">
-            Ummy Online Video Downloader
+            ADL Online Video Downloader
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
             Download videos from YouTube, Facebook, Instagram and more - fast, free, and easy

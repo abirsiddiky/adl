@@ -10,7 +10,7 @@ const Header = () => {
             <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
               <Download className="h-6 w-6 text-primary-foreground" />
             </div>
-            <span className="text-2xl font-bold text-foreground">Ummy</span>
+            <span className="text-2xl font-bold text-foreground">ADL</span>
           </div>
 
           <nav className="hidden md:flex items-center gap-8">

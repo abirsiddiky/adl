@@ -39,7 +39,7 @@ const Features = () => {
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold mb-4 text-foreground">
-            Why Choose Ummy?
+            Why Choose ADL?
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             The most reliable and feature-rich video downloader available online

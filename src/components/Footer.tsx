@@ -10,7 +10,7 @@ const Footer = () => {
               <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
                 <Download className="h-6 w-6 text-primary-foreground" />
               </div>
-              <span className="text-2xl font-bold text-foreground">Ummy</span>
+              <span className="text-2xl font-bold text-foreground">ADL</span>
             </div>
             <p className="text-muted-foreground mb-4 max-w-sm">
               The best online video downloader. Download videos from YouTube, Facebook, Instagram and many more platforms for free.
@@ -61,7 +61,7 @@ const Footer = () => {
         </div>
 
         <div className="mt-12 pt-8 border-t border-border text-center text-muted-foreground">
-          <p>© 2024 Ummy. All rights reserved.</p>
+          <p>© 2024 ADL. All rights reserved.</p>
         </div>
       </div>
     </footer>
