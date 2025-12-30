@@ -55,13 +55,44 @@ const Hero = ({ onVideoProcessed }: HeroProps) => {
 
       if (error) {
         console.error('Error processing video:', error);
+        
+        // Check for rate limit error
+        if (error.message?.includes('429') || error.message?.includes('Rate limit')) {
+          toast.error("Too many requests. Please wait a moment and try again.", {
+            description: "Rate limit: 10 requests per minute",
+            duration: 5000,
+          });
+          return;
+        }
+        
         toast.error("Failed to process video. Please try again.");
         return;
       }
 
+      // Handle rate limit response from edge function
+      if (data?.error === 'Rate limit exceeded') {
+        const retryAfter = data?.retryAfter || 60;
+        toast.error(`Too many requests!`, {
+          description: `Please try again in ${retryAfter} seconds.`,
+          duration: 5000,
+        });
+        return;
+      }
+
       if (data?.success && data?.videoInfo) {
+        // Show rate limit info if available
+        if (data?.rateLimit?.remaining !== undefined && data.rateLimit.remaining <= 3) {
+          toast.warning(`${data.rateLimit.remaining} requests remaining`, {
+            description: `Resets in ${data.rateLimit.resetIn}s`,
+            duration: 3000,
+          });
+        }
         toast.success("Video processed successfully!");
         onVideoProcessed(data.videoInfo);
+      } else if (data?.error) {
+        toast.error(data.error, {
+          description: data.details || undefined,
+        });
       } else {
         toast.error("Failed to extract video information");
       }
