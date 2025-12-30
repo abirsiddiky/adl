@@ -61,7 +61,7 @@ const Footer = () => {
         </div>
 
         <div className="mt-12 pt-8 border-t border-border text-center text-muted-foreground">
-          <p>© 2024 ADL. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} ADL. All rights reserved.</p>
         </div>
       </div>
     </footer>
