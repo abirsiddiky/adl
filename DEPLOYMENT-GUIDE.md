@@ -52,7 +52,7 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 3. Go to Project Settings > API
 4. Copy the Project URL and anon/public key
 
-## Step 4: Set Up Your yt-dlp Server
+## Step 4: Set Up Your yt-dlp Server (Private & Secure)
 
 ### Installing yt-dlp on Your Server
 
@@ -63,41 +63,194 @@ sudo apt install python3 python3-pip ffmpeg
 pip3 install yt-dlp
 ```
 
-#### Using Docker (Recommended):
-```bash
-docker run -d \
-  --name ytdlp-server \
-  -p 3000:3000 \
-  -v /path/to/downloads:/downloads \
-  jauderho/yt-dlp:latest
-```
+### Creating a Secure yt-dlp API Endpoint
 
-### Creating a yt-dlp API Endpoint
-
-You'll need to create a simple HTTP wrapper around yt-dlp. Here's a basic Node.js example:
+Create a Node.js server with **private port binding** and **auto-cleanup**:
 
 **server.js** (place on your server):
 ```javascript
 const express = require('express');
 const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const app = express();
+
+// ============================================
+// CONFIGURATION
+// ============================================
+const PORT = process.env.YTDLP_PORT || 3000;
+const API_KEY = process.env.YTDLP_API_KEY || 'your-secret-api-key';
+const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || '/tmp/ytdlp-downloads';
+const CLEANUP_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+// Ensure downloads directory exists
+if (!fs.existsSync(DOWNLOADS_DIR)) {
+  fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+}
 
 app.use(express.json());
 
+// ============================================
+// API KEY AUTHENTICATION MIDDLEWARE
+// ============================================
+app.use((req, res, next) => {
+  const authHeader = req.headers['x-api-key'] || req.headers['authorization'];
+  if (authHeader !== API_KEY && authHeader !== `Bearer ${API_KEY}`) {
+    console.log(`Unauthorized request from ${req.ip}`);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+});
+
+// ============================================
+// RATE LIMITING (per IP)
+// ============================================
+const rateLimits = new Map();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX = 10; // 10 requests per minute
+
+app.use((req, res, next) => {
+  const ip = req.ip || req.connection.remoteAddress;
+  const now = Date.now();
+  
+  if (!rateLimits.has(ip) || now > rateLimits.get(ip).reset) {
+    rateLimits.set(ip, { count: 1, reset: now + RATE_LIMIT_WINDOW });
+  } else {
+    const record = rateLimits.get(ip);
+    record.count++;
+    if (record.count > RATE_LIMIT_MAX) {
+      return res.status(429).json({ 
+        error: 'Rate limit exceeded',
+        retryAfter: Math.ceil((record.reset - now) / 1000)
+      });
+    }
+  }
+  next();
+});
+
+// ============================================
+// VIDEO INFO ENDPOINT
+// ============================================
 app.post('/api/video-info', (req, res) => {
   const { url } = req.body;
   
-  exec(`yt-dlp -J "${url}"`, (error, stdout, stderr) => {
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required' });
+  }
+
+  // Sanitize URL to prevent command injection
+  const sanitizedUrl = url.replace(/[;&|`$()]/g, '');
+  
+  exec(`yt-dlp -J "${sanitizedUrl}"`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
     if (error) {
-      return res.status(400).json({ error: stderr });
+      console.error('yt-dlp error:', stderr);
+      return res.status(400).json({ error: stderr || 'Failed to process video' });
     }
-    res.json(JSON.parse(stdout));
+    try {
+      res.json(JSON.parse(stdout));
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to parse video info' });
+    }
   });
 });
 
-app.listen(3000, () => {
-  console.log('yt-dlp server running on port 3000');
+// ============================================
+// HEALTH CHECK ENDPOINT
+// ============================================
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// ============================================
+// AUTO-CLEANUP: Delete files older than 2 hours
+// ============================================
+function cleanupOldFiles() {
+  console.log('Running cleanup task...');
+  const now = Date.now();
+  const maxAge = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+
+  fs.readdir(DOWNLOADS_DIR, (err, files) => {
+    if (err) {
+      console.error('Cleanup error:', err);
+      return;
+    }
+
+    files.forEach(file => {
+      const filePath = path.join(DOWNLOADS_DIR, file);
+      fs.stat(filePath, (err, stats) => {
+        if (err) return;
+        
+        if (now - stats.mtimeMs > maxAge) {
+          fs.unlink(filePath, (err) => {
+            if (!err) {
+              console.log(`Deleted old file: ${file}`);
+            }
+          });
+        }
+      });
+    });
+  });
+}
+
+// Run cleanup every 30 minutes
+setInterval(cleanupOldFiles, 30 * 60 * 1000);
+cleanupOldFiles(); // Run on startup
+
+// ============================================
+// START SERVER (PRIVATE - bind to localhost only)
+// ============================================
+// For private access: bind to 127.0.0.1 (localhost only)
+// For public access via reverse proxy: bind to 0.0.0.0
+const BIND_ADDRESS = process.env.PUBLIC_ACCESS === 'true' ? '0.0.0.0' : '127.0.0.1';
+
+app.listen(PORT, BIND_ADDRESS, () => {
+  console.log(`yt-dlp server running on ${BIND_ADDRESS}:${PORT}`);
+  console.log(`Downloads directory: ${DOWNLOADS_DIR}`);
+  console.log(`Auto-cleanup: Every 2 hours`);
+});
+```
+
+### Install Dependencies & Run:
+```bash
+npm init -y
+npm install express
+node server.js
+```
+
+### Environment Variables:
+```bash
+export YTDLP_PORT=3000
+export YTDLP_API_KEY=your-super-secret-key
+export DOWNLOADS_DIR=/var/ytdlp-downloads
+export PUBLIC_ACCESS=false  # Keep private, use reverse proxy
+```
+
+### Using PM2 for Production:
+```bash
+npm install -g pm2
+pm2 start server.js --name ytdlp-server
+pm2 save
+pm2 startup
+```
+
+### Nginx Reverse Proxy (Recommended for Security):
+```nginx
+server {
+    listen 443 ssl;
+    server_name ytdlp.yourdomain.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        
+        # Only allow requests from your edge function
+        # Add your Supabase edge function IP if known
+    }
+}
 ```
 
 ## Step 5: Configure Edge Function

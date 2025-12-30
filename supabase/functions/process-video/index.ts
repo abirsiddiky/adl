@@ -6,12 +6,113 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Cobalt API endpoint (uses yt-dlp under the hood)
-const COBALT_API = 'https://api.cobalt.tools/';
+// ============================================
+// CONFIGURATION - Update these for your server
+// ============================================
+
+// Your self-hosted yt-dlp server endpoint (update this!)
+const YTDLP_SERVER = Deno.env.get('YTDLP_SERVER_URL') || 'http://localhost:3000';
+
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+const RATE_LIMIT_MAX_REQUESTS = 10; // Max 10 requests per minute per IP
+
+// In-memory rate limit store (resets on function restart)
+const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+
+// ============================================
+// RATE LIMITING
+// ============================================
+
+function getClientIP(req: Request): string {
+  // Try various headers for the real IP
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  const realIP = req.headers.get('x-real-ip');
+  if (realIP) {
+    return realIP;
+  }
+  const cfIP = req.headers.get('cf-connecting-ip');
+  if (cfIP) {
+    return cfIP;
+  }
+  return 'unknown';
+}
+
+function checkRateLimit(clientIP: string): { allowed: boolean; remaining: number; resetIn: number } {
+  const now = Date.now();
+  const record = rateLimitStore.get(clientIP);
+
+  // Clean up expired entries periodically
+  if (rateLimitStore.size > 1000) {
+    for (const [ip, data] of rateLimitStore.entries()) {
+      if (now > data.resetTime) {
+        rateLimitStore.delete(ip);
+      }
+    }
+  }
+
+  if (!record || now > record.resetTime) {
+    // New window
+    rateLimitStore.set(clientIP, {
+      count: 1,
+      resetTime: now + RATE_LIMIT_WINDOW_MS,
+    });
+    return { allowed: true, remaining: RATE_LIMIT_MAX_REQUESTS - 1, resetIn: RATE_LIMIT_WINDOW_MS };
+  }
+
+  if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return { 
+      allowed: false, 
+      remaining: 0, 
+      resetIn: record.resetTime - now 
+    };
+  }
+
+  record.count++;
+  return { 
+    allowed: true, 
+    remaining: RATE_LIMIT_MAX_REQUESTS - record.count, 
+    resetIn: record.resetTime - now 
+  };
+}
+
+// ============================================
+// MAIN HANDLER
+// ============================================
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // Get client IP and check rate limit
+  const clientIP = getClientIP(req);
+  const rateLimit = checkRateLimit(clientIP);
+
+  console.log(`Request from IP: ${clientIP}, Rate limit remaining: ${rateLimit.remaining}`);
+
+  if (!rateLimit.allowed) {
+    console.warn(`Rate limit exceeded for IP: ${clientIP}`);
+    return new Response(
+      JSON.stringify({ 
+        error: 'Rate limit exceeded',
+        details: `Too many requests. Please try again in ${Math.ceil(rateLimit.resetIn / 1000)} seconds.`,
+        retryAfter: Math.ceil(rateLimit.resetIn / 1000)
+      }),
+      { 
+        status: 429, 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json',
+          'Retry-After': String(Math.ceil(rateLimit.resetIn / 1000)),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(Math.ceil(rateLimit.resetIn / 1000))
+        } 
+      }
+    );
   }
 
   try {
@@ -57,146 +158,102 @@ serve(async (req) => {
 
     console.log('Detected platform:', platform);
 
-    // Call Cobalt API (yt-dlp wrapper)
+    // Extract video ID for thumbnail
+    let videoId = '';
+    let thumbnail = 'https://via.placeholder.com/1280x720/FF385C/FFFFFF?text=Video+Thumbnail';
+    
+    if (platform === 'youtube') {
+      if (hostname.includes('youtu.be')) {
+        videoId = videoUrl.pathname.slice(1);
+      } else {
+        videoId = videoUrl.searchParams.get('v') || '';
+      }
+      if (videoId) {
+        thumbnail = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+      }
+    }
+
+    // Call your self-hosted yt-dlp server
     try {
-      const cobaltResponse = await fetch(COBALT_API, {
+      console.log('Calling yt-dlp server:', YTDLP_SERVER);
+      
+      const ytdlpResponse = await fetch(`${YTDLP_SERVER}/api/video-info`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          url: url,
-          videoQuality: '1080',
-          filenamePattern: 'basic',
-          downloadMode: 'auto'
-        })
+        body: JSON.stringify({ url })
       });
 
-      const cobaltData = await cobaltResponse.json();
-      console.log('Cobalt API response:', cobaltData);
-
-      // Extract video ID for thumbnail
-      let videoId = '';
-      let thumbnail = 'https://via.placeholder.com/1280x720/FF385C/FFFFFF?text=Video+Thumbnail';
-      
-      if (platform === 'youtube') {
-        if (hostname.includes('youtu.be')) {
-          videoId = videoUrl.pathname.slice(1);
-        } else {
-          videoId = videoUrl.searchParams.get('v') || '';
-        }
-        if (videoId) {
-          thumbnail = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
-        }
+      if (!ytdlpResponse.ok) {
+        throw new Error(`yt-dlp server returned ${ytdlpResponse.status}`);
       }
 
-      // Handle Cobalt API response and provide fallback when the external service fails
-      if (cobaltData.status === 'error' || cobaltData.status === 'rate-limit') {
-        console.error('Cobalt API error:', cobaltData);
+      const ytdlpData = await ytdlpResponse.json();
+      console.log('yt-dlp response received, title:', ytdlpData.title || 'Unknown');
 
-        const fallbackVideoInfo = {
-          title: 'Demo Video (yt-dlp service unavailable)',
-          thumbnail,
-          duration: 'Unknown',
-          platform,
-          formats: [
-            {
-              quality: 'Fallback',
-              format: 'MP4',
-              size: 'Unknown',
-              downloadUrl: url,
-            },
-          ],
-          audioFormats: [
-            {
-              quality: 'Fallback Audio',
-              format: 'Audio',
-              size: 'Unknown',
-              downloadUrl: '#',
-            },
-          ],
-        };
-
-        return new Response(
-          JSON.stringify({
-            success: true,
-            fallback: true,
-            videoInfo: fallbackVideoInfo,
-            message:
-              cobaltData.text ||
-              'External video service is currently unavailable; showing demo data instead.',
-          }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Build response with available formats
+      // Build response with available formats from yt-dlp
       const formats = [];
       const audioFormats = [];
 
-      // Add the main download URL from Cobalt
-      if (cobaltData.url) {
+      // Parse yt-dlp formats
+      if (ytdlpData.formats && Array.isArray(ytdlpData.formats)) {
+        // Video formats
+        const videoFormats = ytdlpData.formats.filter((f: any) => 
+          f.vcodec !== 'none' && f.acodec !== 'none' && f.ext === 'mp4'
+        );
+        
+        videoFormats.slice(0, 5).forEach((f: any) => {
+          formats.push({
+            quality: f.height ? `${f.height}p` : f.format_note || 'Unknown',
+            format: f.ext?.toUpperCase() || 'MP4',
+            size: f.filesize ? `${(f.filesize / 1024 / 1024).toFixed(1)} MB` : 'Variable',
+            downloadUrl: f.url || '#',
+          });
+        });
+
+        // Audio formats
+        const audioOnly = ytdlpData.formats.filter((f: any) => 
+          f.vcodec === 'none' && f.acodec !== 'none'
+        );
+        
+        audioOnly.slice(0, 3).forEach((f: any) => {
+          audioFormats.push({
+            quality: f.abr ? `${f.abr}kbps` : 'Audio',
+            format: f.ext?.toUpperCase() || 'Audio',
+            size: f.filesize ? `${(f.filesize / 1024 / 1024).toFixed(1)} MB` : 'Variable',
+            downloadUrl: f.url || '#',
+          });
+        });
+      }
+
+      // Fallback if no formats parsed
+      if (formats.length === 0) {
         formats.push({
           quality: 'Best Available',
           format: 'MP4',
           size: 'Variable',
-          downloadUrl: cobaltData.url,
+          downloadUrl: ytdlpData.url || url,
         });
       }
 
-      // Add audio-only option if available
-      if (cobaltData.audio) {
+      if (audioFormats.length === 0) {
         audioFormats.push({
-          quality: 'Best Available',
-          format: 'MP3/M4A',
+          quality: 'Audio',
+          format: 'M4A',
           size: 'Variable',
-          downloadUrl: cobaltData.audio,
+          downloadUrl: '#',
         });
-      }
-
-      // If picker array is available (multiple quality options)
-      if (cobaltData.picker && Array.isArray(cobaltData.picker)) {
-        cobaltData.picker.forEach((item: any, index: number) => {
-          if (item.url) {
-            formats.push({
-              quality: item.type === 'video' ? `Option ${index + 1}` : 'Audio',
-              format: item.type === 'video' ? 'MP4' : 'Audio',
-              size: 'Variable',
-              downloadUrl: item.url,
-            });
-          }
-        });
-      }
-
-      // If no formats were found, add fallback
-      if (formats.length === 0 && audioFormats.length === 0) {
-        return new Response(
-          JSON.stringify({ 
-            error: 'No download links available',
-            details: 'Could not extract download URLs from this video.'
-          }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
       }
 
       const videoInfo = {
-        title: cobaltData.filename || `${platform.charAt(0).toUpperCase() + platform.slice(1)} Video`,
-        thumbnail,
-        duration: 'Unknown',
+        title: ytdlpData.title || `${platform.charAt(0).toUpperCase() + platform.slice(1)} Video`,
+        thumbnail: ytdlpData.thumbnail || thumbnail,
+        duration: ytdlpData.duration ? formatDuration(ytdlpData.duration) : 'Unknown',
         platform,
-        formats: formats.length > 0 ? formats : [{
-          quality: 'Available',
-          format: 'MP4',
-          size: 'Variable',
-          downloadUrl: cobaltData.url || '#',
-        }],
-        audioFormats: audioFormats.length > 0 ? audioFormats : [{
-          quality: 'Audio',
-          format: 'Audio',
-          size: 'Variable',
-          downloadUrl: cobaltData.audio || '#',
-        }],
+        formats,
+        audioFormats,
       };
 
       console.log('Video info processed successfully');
@@ -205,26 +262,58 @@ serve(async (req) => {
         JSON.stringify({ 
           success: true,
           videoInfo,
-          message: 'Video processed successfully using yt-dlp (via Cobalt API)' 
+          message: 'Video processed successfully using yt-dlp',
+          rateLimit: {
+            remaining: rateLimit.remaining,
+            resetIn: Math.ceil(rateLimit.resetIn / 1000)
+          }
         }),
         { 
           status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json',
+            'X-RateLimit-Remaining': String(rateLimit.remaining),
+          }
         }
       );
 
     } catch (apiError) {
-      console.error('Cobalt API call failed:', apiError);
+      console.error('yt-dlp server call failed:', apiError);
       
-      // Fallback response if Cobalt API fails
+      // Fallback response if yt-dlp server fails
+      const fallbackVideoInfo = {
+        title: 'Demo Video (yt-dlp server unavailable)',
+        thumbnail,
+        duration: 'Unknown',
+        platform,
+        formats: [
+          {
+            quality: 'Fallback',
+            format: 'MP4',
+            size: 'Unknown',
+            downloadUrl: url,
+          },
+        ],
+        audioFormats: [
+          {
+            quality: 'Fallback Audio',
+            format: 'Audio',
+            size: 'Unknown',
+            downloadUrl: '#',
+          },
+        ],
+      };
+
       return new Response(
         JSON.stringify({ 
-          error: 'Video processing service unavailable',
-          details: 'The external video processing service is temporarily unavailable. Please try again later.',
-          fallback: true
+          success: true,
+          fallback: true,
+          videoInfo: fallbackVideoInfo,
+          message: 'yt-dlp server is unavailable. Please ensure your server is running.',
         }),
         { 
-          status: 503,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       );
@@ -244,3 +333,15 @@ serve(async (req) => {
     );
   }
 });
+
+// Helper function to format duration
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
