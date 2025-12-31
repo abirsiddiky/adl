@@ -1,29 +1,32 @@
 # ADL - Online Video Downloader
 
-A fast, free online video downloader supporting YouTube, Facebook, Instagram, TikTok, and more platforms.
+A fast, free online video downloader supporting YouTube, Facebook, Instagram, TikTok, and more platforms. Built with React and powered by yt-dlp for reliable video extraction.
 
-## Features
+## ✨ Features
 
-- 🎬 Download videos from multiple platforms
-- 📱 Responsive design for mobile and desktop
-- 🎵 Audio-only download options (MP3)
-- 📊 Multiple quality options (360p to 4K)
-- ⚡ Rate limiting protection
-- 🔒 Secure edge function processing
+- 🎬 **Multi-Platform Support** - Download videos from YouTube, Facebook, Instagram, TikTok, Twitter/X, Vimeo, and 1000+ more sites
+- 📊 **Multiple Quality Options** - Choose from 360p to 4K resolution
+- 🎵 **Audio Extraction** - Download audio-only in MP3/M4A format
+- 📱 **Responsive Design** - Works seamlessly on mobile and desktop
+- ⚡ **Rate Limiting** - Built-in abuse protection (10 requests/minute)
+- 🔒 **Secure Processing** - Edge function handles all video extraction server-side
 
-## Tech Stack
+## 🛠️ Tech Stack
 
-- **Frontend:** React 18 + TypeScript + Vite
-- **Styling:** Tailwind CSS + shadcn/ui
-- **Backend:** Lovable Cloud Edge Functions
-- **Video Processing:** yt-dlp
+| Component | Technology |
+|-----------|------------|
+| Frontend | React 18 + TypeScript + Vite |
+| Styling | Tailwind CSS + shadcn/ui |
+| Backend | Lovable Cloud Edge Functions |
+| Video Processing | yt-dlp (self-hosted server) |
 
-## Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
 
 - Node.js v18 or higher
 - npm or bun package manager
+- A deployed yt-dlp server (see [Deployment Guide](./DEPLOYMENT-GUIDE.md))
 
 ### Installation
 
@@ -39,78 +42,131 @@ npm install
 npm run dev
 ```
 
-### Environment Variables
+### Environment Configuration
 
-The project uses Lovable Cloud, which automatically configures the required environment variables:
+The project uses Lovable Cloud, which automatically configures these environment variables:
 
-- `VITE_SUPABASE_URL` - Backend API URL
-- `VITE_SUPABASE_PUBLISHABLE_KEY` - Public API key
-- `VITE_SUPABASE_PROJECT_ID` - Project identifier
+| Variable | Description |
+|----------|-------------|
+| `VITE_SUPABASE_URL` | Backend API URL (auto-configured) |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Public API key (auto-configured) |
+| `VITE_SUPABASE_PROJECT_ID` | Project identifier (auto-configured) |
 
-### Backend Configuration
+### Backend Secret Configuration
 
-Set the following secret in your Lovable Cloud settings:
+⚠️ **Required:** Set the following secret in Lovable Cloud settings:
 
-- `YTDLP_SERVER_URL` - URL of your yt-dlp server (see DEPLOYMENT-GUIDE.md)
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `YTDLP_SERVER_URL` | Your deployed yt-dlp server URL | `https://ytdlp.yourdomain.com` |
 
-## Project Structure
+**How to set the secret:**
+1. Open your Lovable project
+2. Go to Settings → Secrets
+3. Add `YTDLP_SERVER_URL` with your server URL
+4. The edge function will automatically use the new URL
+
+## 📁 Project Structure
 
 ```
 ├── src/
-│   ├── components/      # React components
-│   │   ├── ui/          # shadcn/ui components
-│   │   ├── Hero.tsx     # Main download interface
-│   │   ├── VideoResults.tsx  # Download results display
-│   │   └── ...
-│   ├── pages/           # Page components
-│   ├── hooks/           # Custom React hooks
-│   └── integrations/    # Backend integrations
+│   ├── components/          # React components
+│   │   ├── ui/              # shadcn/ui components
+│   │   ├── Hero.tsx         # Main download interface
+│   │   ├── VideoResults.tsx # Download results display
+│   │   ├── Header.tsx       # Navigation header
+│   │   ├── Footer.tsx       # Site footer
+│   │   ├── Features.tsx     # Feature showcase
+│   │   └── HowTo.tsx        # Usage instructions
+│   ├── pages/               # Page components
+│   │   ├── Index.tsx        # Home page
+│   │   └── NotFound.tsx     # 404 page
+│   ├── hooks/               # Custom React hooks
+│   ├── lib/                 # Utility functions
+│   └── integrations/        # Backend integrations
 ├── supabase/
-│   └── functions/       # Edge functions
-│       └── process-video/  # Video processing function
-└── public/              # Static assets
+│   └── functions/           # Edge functions
+│       └── process-video/   # Video processing function
+├── public/                  # Static assets
+├── DEPLOYMENT-GUIDE.md      # Detailed deployment instructions
+└── README.md                # This file
 ```
 
-## Deployment
+## 🌐 Deployment
 
 ### Quick Deploy (Lovable)
 
-1. Click "Publish" in Lovable editor
-2. Your app is live!
+1. Click **"Publish"** in the Lovable editor
+2. Set the `YTDLP_SERVER_URL` secret to your yt-dlp server
+3. Your app is live!
 
-### Self-Hosted
+### Self-Hosted Deployment
 
-See [DEPLOYMENT-GUIDE.md](./DEPLOYMENT-GUIDE.md) for detailed deployment instructions including:
+See [DEPLOYMENT-GUIDE.md](./DEPLOYMENT-GUIDE.md) for detailed instructions:
 
-- Setting up your yt-dlp server
-- Deploying edge functions
-- Configuring Nginx/Apache
-- SSL certificate setup
+- ✅ Setting up your yt-dlp server with Node.js
+- ✅ Configuring API key authentication
+- ✅ Deploying edge functions
+- ✅ Nginx/Apache reverse proxy setup
+- ✅ SSL certificate configuration
+- ✅ Security hardening
 
-## Supported Platforms
+## 🎥 Supported Platforms
 
-- YouTube
-- Facebook
-- Instagram
-- TikTok
-- Twitter/X
-- Vimeo
-- And 1000+ more via yt-dlp
+| Platform | Status |
+|----------|--------|
+| YouTube | ✅ Full support |
+| Facebook | ✅ Full support |
+| Instagram | ✅ Full support |
+| TikTok | ✅ Full support |
+| Twitter/X | ✅ Full support |
+| Vimeo | ✅ Full support |
+| 1000+ more | ✅ Via yt-dlp |
 
-## Rate Limiting
+## ⚡ Rate Limiting
 
-The API includes built-in rate limiting:
-- 10 requests per minute per IP
-- Clear feedback when limits are reached
-- Automatic reset after cooldown period
+The API includes built-in rate limiting to prevent abuse:
 
-## Security
+| Limit | Value |
+|-------|-------|
+| Requests per minute | 10 |
+| Window duration | 60 seconds |
+| Reset behavior | Automatic |
 
-- No user data stored
-- Rate limiting prevents abuse
-- API key protection for yt-dlp server
-- CORS configured for security
+Users receive clear feedback when limits are reached, including the time until reset.
 
-## License
+## 🔒 Security
+
+- **No user data stored** - Stateless processing, no database required
+- **Rate limiting** - Prevents abuse and DDoS attacks
+- **API key protection** - yt-dlp server secured with authentication
+- **CORS configured** - Only allows requests from your domain
+- **Edge function isolation** - Server-side processing protects your infrastructure
+
+## 🐛 Troubleshooting
+
+### "yt-dlp server unavailable" Error
+
+1. Verify your yt-dlp server is running and accessible
+2. Check the `YTDLP_SERVER_URL` secret is set correctly
+3. Ensure the URL includes the protocol (https://)
+4. Check server logs for connection issues
+
+### Rate Limit Exceeded
+
+- Wait for the cooldown period (shown in error message)
+- The limit resets automatically after 60 seconds
+
+### Video Not Found
+
+- Verify the video URL is valid and publicly accessible
+- Some private or age-restricted videos may not be accessible
+- Try a different video to test functionality
+
+## 📄 License
 
 © 2025 ADL. All rights reserved.
+
+---
+
+Built with ❤️ using [Lovable](https://lovable.dev)
